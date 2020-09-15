@@ -93,6 +93,8 @@ enum BodyStatus : uint8_t
     NormalOperation = 0,
     BodyCalibration = 1,
     DomeCalibration = 2,
+    JoystickCalibration = 3,
+    SaveJoystickValues = 4,
 };
 
 enum BodyMode : uint8_t
@@ -195,7 +197,7 @@ int Joy3X, Joy3Xa, Joy3Xb;
 int Joy4X, Joy4Xa, Joy4Xb;
 int Joy1XCenter, Joy1YCenter, Joy2XCenter, Joy2YCenter, Joy3XCenter, Joy4XCenter;
 byte updateScreen = 1;
-byte wireless, bodyWireless;
+byte wireless;
 
 //int rectime[20];
 //byte rectimeloc;
@@ -210,8 +212,8 @@ byte startup = 1;
 uint8_t lastBodyStatus = 1000;
 uint8_t lastDriveMode = BodyMode::UnknownSpeed;
 uint8_t lastDirection = Direction::UnknownDirection;
-
-bool displayJoystickCalibration = false;
+double lastDomeVoltage = 0.0;
+double lastBodyVoltage = 0.0;
 
 void setup()
 {
@@ -352,11 +354,6 @@ void readInputs()
 
     sendToBody.Joy3X = Joy3X; //spin Flywheel
     sendToBody.Joy4X = Joy4X;
-
-    if (sendToBody.motorEnable == 1 && sendToBody.but8 == 0 && sendToBody.but7 == 0)
-    {
-        displayJoystickCalibration = true;
-    }
 }
 
 void centerChannels()
@@ -478,10 +475,6 @@ void recData()
                 //Serial.println(millis() - lastrecdata);
                 lastrecdata = millis();
                 lastrecDataMillis = millis();
-                if(bodyWireless == 0)
-                {
-                    bodyWireless = 1;
-                }
             }
             SEND = true;
         }
@@ -495,17 +488,8 @@ void recData()
             else
             {
                 recFromBody = *(recBodyData*)radio.DATA; 
-                recFromDome.bodyBatt = recFromBody.bodyBatt;
                 lastrecdata = millis();
                 lastrecDataMillis = millis();
-                if(recFromDome.domeBatt != 99.99)
-                {
-                    recFromDome.domeBatt = 99.99;
-                }
-                if(bodyWireless == 1)
-                {
-                    bodyWireless = 0;
-                }
             }
             SEND = true;
         }
@@ -520,8 +504,9 @@ bool needsScreenUpdate()
         || lastBodyStatus != recFromBody.bodyStatus
         || lastDriveMode != recFromBody.bodyMode
         || lastDirection != recFromBody.bodyDirection
-        || updateScreen == 1
-        || displayJoystickCalibration);
+        || lastDomeVoltage != recFromDome.domeBatt
+        || lastBodyVoltage != recFromBody.bodyBatt
+        || updateScreen == 1);
 }
 
 void Screen()
@@ -531,10 +516,13 @@ void Screen()
         return;
     }
 
-    if (displayJoystickCalibration)
+    if (recFromBody.bodyStatus == BodyStatus::JoystickCalibration)
     {
         timeJoystickCalibration();
-        displayJoystickCalibration = false;
+    }
+    else if (recFromBody.bodyStatus == BodyStatus::SaveJoystickValues)
+    {
+        setJoystickCenter();
     }
     else if(recFromBody.bodyStatus == BodyStatus::BodyCalibration)
     {
@@ -552,6 +540,8 @@ void Screen()
     lastDriveMode = recFromBody.bodyMode;
     lastDirection = recFromBody.bodyDirection;
     lastBodyStatus = recFromBody.bodyStatus;
+    lastDomeVoltage = recFromDome.domeBatt;
+    lastBodyVoltage = recFromBody.bodyBatt;
 }
 
 void infoScreen()
@@ -611,16 +601,16 @@ void infoScreen()
     }
 
     oled.print(F("Body: ")); 
-    if(wireless == 1 && recFromDome.bodyBatt != 99.99)
+    if(wireless == 1 && recFromBody.bodyBatt != 99.99)
     {
-        oled.print(recFromDome.bodyBatt); oled.println(F("v                         "));
+        oled.print(recFromBody.bodyBatt); oled.println(F("v                         "));
     }
     else
     {
         oled.println(F("Disconnected                      "));
     }
     oled.print(F("Dome: ")); 
-    if(wireless == 1 && recFromDome.domeBatt != 99.99)
+    if(wireless == 1 && recFromDome.domeBatt != 99.99 && recFromDome.domeBatt != 0.0)
     {
         oled.print(recFromDome.domeBatt); oled.println("v                         ");
     }
@@ -664,42 +654,8 @@ void timeJoystickCalibration()
     delay(4000);
     oled.clear();
     oled.println(F("1. Release joysticks      "));
-    oled.println(F("2. Release all buttons "));
+    oled.println(F("2. Press right button     "));
     oled.print(F("                    "));
-
-    while (
-        digitalRead(lBut1PIN) == 0
-        || digitalRead(lBut2PIN) == 0
-        || digitalRead(lBut3PIN) == 0
-        || digitalRead(rBut1PIN) == 0
-        || digitalRead(rBut2PIN) == 0
-        || digitalRead(rBut3PIN) == 0)
-    {
-    }
-
-    oled.clear();
-    oled.println(F("1. Release joysticks          "));
-    oled.println(F("2. Press any button         "));
-    oled.print(F("                    "));
-
-    while (
-        digitalRead(lBut1PIN) == 1
-        && digitalRead(lBut2PIN) == 1
-        && digitalRead(lBut3PIN) == 1
-        && digitalRead(rBut1PIN) == 1
-        && digitalRead(rBut2PIN) == 1
-        && digitalRead(rBut3PIN) == 1
-        && digitalRead(enablePIN) == 1)
-    {
-    }
-
-    if (digitalRead(enablePIN == 1))
-    {
-        setJoystickCenter();
-    }
-
-    oled.clear();
-    updateScreen = 1;
 }
 
 void resetMenu()
